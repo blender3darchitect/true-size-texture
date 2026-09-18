@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+
+# Built extension archives — attach these to GitHub Releases instead
+*.zip
+
+# Internal reference docs, kept locally
+CLAUDE.md
+TrueSizeTexture-docs.md
+
+# Design sources and working references, kept locally
+*.afdesign
+truesize-search.md
+real-world-user.md
+18inx18in.png
+18inx36in.png
+75x75.png
+template_Square_1m_1m.jpg
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini

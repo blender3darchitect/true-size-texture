@@ -1,0 +1,19 @@
+schema_version = "1.0.0"
+
+id = "true_size_texture"
+version = "0.6.1"
+name = "True Size Texture"
+tagline = "Apply real-world texture sizes with box mapping"
+maintainer = "Allan Brito <allan@blender3darchitect.com>"
+type = "add-on"
+
+blender_version_min = "4.2.0"
+
+license = ["SPDX:GPL-3.0-or-later"]
+copyright = ["2026 B3DA Learning"]
+tags = ["Material"]
+
+[permissions]
+
+[build]
+paths_exclude_pattern = ["__pycache__/", ".git", "*.zip"]
