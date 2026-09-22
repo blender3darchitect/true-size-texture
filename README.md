@@ -41,12 +41,13 @@ add-on just removes the bookkeeping.
   UV-space tangent data and break under box projection
 - **Non-square textures** are projected per face normal so an 18x36 texture
   reads correctly on every orientation, not just one
-- **Align to Edge** starts tiles at an object's bounding box corner instead of
-  centring them on the origin
+- **Align to Anchor** starts a full tile at the object's bounding box corner,
+  its origin, or the 3D cursor, instead of centring the texture on the origin
 - **Separate & Apply** splits selected faces into their own object with their
   own texture size, from Edit Mode
 - **Calibration placeholders** — generate a labelled swatch at the current
-  size to verify placement before the real texture goes on
+  size, with centre-axis marks, to verify placement before the real texture
+  goes on
 
 ## Installing
 

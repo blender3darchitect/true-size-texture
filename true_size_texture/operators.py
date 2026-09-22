@@ -32,6 +32,28 @@ def _has_unapplied_scale(obj):
     return (obj.scale - ref).length > _SCALE_EPSILON
 
 
+def _anchor_local(obj, settings, cursor_world):
+    """Local-space point a full tile's corner should start at.
+
+    Both projection paths anchor the same way — the square path adds the
+    texture's half-extents to this and writes it to texspace_location,
+    the triplanar path subtracts it from the object coordinates — so the
+    anchor choice lives here and nowhere else.
+
+    The 3D cursor is world space while texture space and object
+    coordinates are the object's local space, hence the inverse-matrix
+    conversion. Resolving it per object is what makes a multi-object
+    apply start every tile at the same world point.
+    """
+    anchor = settings.align_anchor
+    if anchor == 'ORIGIN':
+        return Vector((0.0, 0.0, 0.0))
+    if anchor == 'CURSOR':
+        return obj.matrix_world.inverted() @ Vector(cursor_world)
+    # bound_box is 8 corners in local space; index 0 is the minimum
+    return Vector(obj.bound_box[0])
+
+
 def _find_node(nodes, node_type):
     """Find first node of given type in a node tree."""
     for node in nodes:
@@ -243,7 +265,7 @@ def _mix_sockets(node):
     return factor, a_in, b_in, result
 
 
-def _build_triplanar(mat, settings, obj):
+def _build_triplanar(mat, settings, anchor):
     """Non-square path: manual triplanar driven by the face normal.
 
     Blender's BOX projection gives no per-plane UV control, and
@@ -296,14 +318,12 @@ def _build_triplanar(mat, settings, obj):
     coords = tex_coord.outputs['Object']
 
     if settings.align_to_edge:
-        # Shift the origin to the bounding box minimum so a full tile
-        # starts at the object's edge, matching the square path's use of
-        # texspace_location.
-        bb_min = Vector(obj.bound_box[0])
+        # Shift the origin to the anchor so a full tile starts there,
+        # matching the square path's use of texspace_location.
         edge = _new('ShaderNodeVectorMath', "Edge Offset", (-1700, 200))
         edge.operation = 'SUBTRACT'
         links.new(coords, edge.inputs[0])
-        edge.inputs[1].default_value = (bb_min.x, bb_min.y, bb_min.z)
+        edge.inputs[1].default_value = (anchor.x, anchor.y, anchor.z)
         coords = edge.outputs['Vector']
 
     sep_pos = _new('ShaderNodeSeparateXYZ', "Split Coords", (-1520, 200))
@@ -457,7 +477,7 @@ def _build_triplanar(mat, settings, obj):
     _remove_orphaned_nodes(nodes, links)
 
 
-def _setup_box_mapping(mat, settings, obj):
+def _setup_box_mapping(mat, settings, anchor):
     """Configure real-world mapping on a material.
 
     Dispatches between the two projection strategies. See the module
@@ -467,7 +487,7 @@ def _setup_box_mapping(mat, settings, obj):
     cannot get the right extent on every face orientation that way.
     """
     if settings.non_square:
-        _build_triplanar(mat, settings, obj)
+        _build_triplanar(mat, settings, anchor)
     else:
         _setup_box_projection(mat, settings)
 
@@ -635,7 +655,7 @@ def _get_texture_dimensions(settings):
     return settings.texture_size, settings.texture_size
 
 
-def _setup_texture_space(obj, settings):
+def _setup_texture_space(obj, settings, anchor):
     """Set real-world texture size via Texture Space.
 
     texspace_size is half-extents: Blender measures the radius from
@@ -643,13 +663,14 @@ def _setup_texture_space(obj, settings):
     Formula: texspace_size = texture_size_meters / 2.0
 
     When align_to_edge is enabled, texspace_location is calculated so
-    that a full tile starts at the object's bounding box minimum corner.
+    that a full tile starts at `anchor`, the local-space point chosen by
+    settings.align_anchor (see _anchor_local).
 
     From the Generated coordinate formula:
         Generated = (vertex_pos - location) / (2 * size) + 0.5
 
-    For Generated = 0 at bbox_min:
-        location = bbox_min + size
+    For Generated = 0 at the anchor:
+        location = anchor + size
 
     This is the critical step from the manual workflow — it decouples
     texture size from object dimensions.
@@ -676,12 +697,12 @@ def _setup_texture_space(obj, settings):
     mesh.texspace_size = size
 
     if settings.align_to_edge:
-        # bound_box is 8 corners in local space; index 0 is the minimum
-        bb_min = Vector(obj.bound_box[0])
+        # Z uses the width half-extent, matching the Z size above — a
+        # mismatch here drifts the alignment on that axis alone
         mesh.texspace_location = (
-            bb_min.x + half_w,
-            bb_min.y + half_h,
-            bb_min.z + half_w,
+            anchor.x + half_w,
+            anchor.y + half_h,
+            anchor.z + half_w,
         )
     else:
         mesh.texspace_location = (0.0, 0.0, 0.0)
@@ -789,10 +810,32 @@ class TST_OT_ApplyMapping(Operator):
                 "Apply scale (Ctrl+A) for correct texture sizing"
             )
 
+        # Read once: every object resolves this same world point into
+        # its own local space, so one apply starts every tile together
+        cursor_world = context.scene.cursor.location.copy()
+
+        # Texture space lives on the data-block, so objects sharing a
+        # mesh cannot hold different anchors — the last one applied wins
+        if settings.align_to_edge and settings.align_anchor == 'CURSOR':
+            shared = {
+                obj.name for obj in context.selected_objects
+                if obj.type in {'MESH', 'CURVE', 'SURFACE'}
+                and obj.data.users > 1
+            }
+            if shared:
+                self.report(
+                    {'WARNING'},
+                    f"{len(shared)} object(s) share data with others; "
+                    "a 3D Cursor anchor cannot differ per object "
+                    "(make them single-user for per-object alignment)",
+                )
+
         count = 0
         for obj in context.selected_objects:
             if obj.type not in {'MESH', 'CURVE', 'SURFACE'}:
                 continue
+
+            anchor = _anchor_local(obj, settings, cursor_world)
 
             # Create material if none exists
             if not obj.data.materials:
@@ -809,12 +852,12 @@ class TST_OT_ApplyMapping(Operator):
                 if not mat.use_nodes:
                     mat.use_nodes = True
 
-            _setup_box_mapping(mat, settings, obj)
+            _setup_box_mapping(mat, settings, anchor)
 
             # Always configure texture space: disable auto and set (1,1,1)
             # so texture size stays fixed regardless of object dimensions.
             # This is the critical step from the manual workflow.
-            _setup_texture_space(obj, settings)
+            _setup_texture_space(obj, settings, anchor)
 
             count += 1
 
@@ -879,8 +922,11 @@ class TST_OT_SeparateAndApply(Operator):
         new_obj.data.materials.clear()
         new_obj.data.materials.append(mat)
 
-        _setup_box_mapping(mat, settings, new_obj)
-        _setup_texture_space(new_obj, settings)
+        anchor = _anchor_local(
+            new_obj, settings, context.scene.cursor.location,
+        )
+        _setup_box_mapping(mat, settings, anchor)
+        _setup_texture_space(new_obj, settings, anchor)
 
         # Name the new object after the texture size
         new_obj.name = f"{original_obj.name}{size_label}"

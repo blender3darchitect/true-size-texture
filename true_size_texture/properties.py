@@ -60,10 +60,27 @@ class TST_PG_Settings(PropertyGroup):
         default='Generated',
     )
     align_to_edge: BoolProperty(
-        name="Align to Edge",
-        description="Align texture tiles to start at the object's "
-        "minimum bounding box corner instead of centering on the origin",
+        name="Align to Anchor",
+        description="Start a full tile at an anchor point instead of "
+        "centering the texture on the object origin. Ignored when "
+        "Coordinates is set to Object, which bypasses texture space",
         default=False,
+    )
+    align_anchor: EnumProperty(
+        name="Anchor",
+        description="Point the tile's corner is placed on when "
+        "Align to Anchor is enabled",
+        items=[
+            ('BBOX', "Bounding Box",
+             "Minimum corner of the object's bounding box"),
+            ('ORIGIN', "Object Origin",
+             "The object's own origin point"),
+            ('CURSOR', "3D Cursor",
+             "The 3D cursor's position, resolved into each object's "
+             "local space. Read when the operator runs — moving the "
+             "cursor afterwards has no effect until you apply again"),
+        ],
+        default='BBOX',
     )
 
     placeholder_resolution: EnumProperty(
@@ -75,6 +92,9 @@ class TST_PG_Settings(PropertyGroup):
             ('512', "512 px", "Fast to generate, fine for blocking out"),
             ('1024', "1024 px", "Default. Labels stay legible up close"),
             ('2048', "2048 px", "Crisp labels on large surfaces"),
+            ('4096', "4096 px",
+             "Print-scale detail. Slower to generate and needs a few "
+             "hundred MB while it renders"),
         ],
         default='1024',
     )

@@ -1,20 +1,21 @@
 """Generate labelled calibration textures for checking texture placement.
 
 The swatch mirrors the classic printed reference: a light field inside a
-heavy black border, with the real-world width written along the top edge
-and the height down the left. Applied through this add-on at the same
-size, the labels should read upright and undistorted on every face — if
-the mapping is wrong, the wrong number shows up on the wrong axis, which
-a checker pattern would never reveal.
+black border, with the real-world width written along the top edge and
+the height down the left, and a dashed cross marking the two centre
+axes. Applied through this add-on at the same size, the labels should
+read upright and undistorted on every face — if the mapping is wrong,
+the wrong number shows up on the wrong axis, which a checker pattern
+would never reveal.
 
 Two passes build the image:
 
-1. A pixel pass (border, field, corner tick) using numpy. This has no
-   dependencies beyond Blender itself and always succeeds.
+1. A pixel pass (border, field, corner tick, centre axes) using numpy.
+   This has no dependencies beyond Blender itself and always succeeds.
 2. A text pass through blf drawing into a GPU offscreen buffer, read
    back and composited over the field. This needs a GPU context, so it
    degrades gracefully: without it the swatch still carries its border,
-   aspect and corner tick, just no numbers.
+   aspect, corner tick and centre axes, just no numbers.
 
 The image is packed into the .blend rather than written to disk, so the
 add-on needs no file permissions and leaves nothing behind.
@@ -32,11 +33,17 @@ _FIELD_VALUE = 0.918   # #EAEAEA, the light grey of the reference swatch
 _INK_VALUE = 0.0       # border, tick and text
 
 # Fractions of the image's shorter side
-_BORDER_FRACTION = 0.035
-_TICK_FRACTION = 0.077     # corner orientation mark, ~2.2x the border
+_BORDER_FRACTION = 0.0175
+_TICK_FRACTION = 0.077     # corner orientation mark
 _TICK_GAP_FRACTION = 0.022  # gap between border and tick
 _TEXT_FRACTION = 0.11      # label cap height
 _TEXT_GAP_FRACTION = 0.02  # breathing room inside the border
+
+# Dashed cross marking the two centre axes. Thinner than the border so
+# it reads as a guide rather than as part of the frame.
+_CENTRE_LINE_FRACTION = 0.006
+_CENTRE_DASH_FRACTION = 0.03
+_CENTRE_GAP_FRACTION = 0.03
 
 # Height label sits above centre, matching the reference swatch
 _SIDE_LABEL_HEIGHT = 0.45
@@ -133,6 +140,39 @@ def _render_text_layer(width_px, height_px, labels):
     return pixels[..., 0:1].copy()
 
 
+def _dashed_indices(start, stop, centre, dash, gap):
+    """Indices of the dashed run over [start, stop), phased on `centre`.
+
+    The phase puts a dash across the centre itself, so the crossing
+    point of the two axes is solid rather than falling in a gap.
+    """
+    idx = np.arange(start, stop)
+    phase = (idx - centre + dash // 2) % (dash + gap)
+    return idx[phase < dash]
+
+
+def _draw_centre_axes(pixels, width_px, height_px, border, short_side):
+    """Dashed cross through the middle of the field, both axes."""
+    thickness = max(1, int(round(short_side * _CENTRE_LINE_FRACTION)))
+    dash = max(2, int(round(short_side * _CENTRE_DASH_FRACTION)))
+    gap = max(2, int(round(short_side * _CENTRE_GAP_FRACTION)))
+
+    x_centre = width_px // 2
+    y_centre = height_px // 2
+    x0 = max(border, x_centre - thickness // 2)
+    y0 = max(border, y_centre - thickness // 2)
+    x1 = min(width_px - border, x0 + thickness)
+    y1 = min(height_px - border, y0 + thickness)
+
+    rows = _dashed_indices(border, height_px - border, y_centre, dash, gap)
+    if len(rows) and x1 > x0:
+        pixels[rows, x0:x1, :3] = _INK_VALUE
+
+    cols = _dashed_indices(border, width_px - border, x_centre, dash, gap)
+    if len(cols) and y1 > y0:
+        pixels[y0:y1, cols, :3] = _INK_VALUE
+
+
 def _draw_swatch(width_px, height_px, labels):
     """Build the RGBA float array for one swatch."""
     short_side = min(width_px, height_px)
@@ -154,6 +194,10 @@ def _draw_swatch(width_px, height_px, labels):
     tick = max(3, int(round(short_side * _TICK_FRACTION)))
     inset = border + max(2, int(round(short_side * _TICK_GAP_FRACTION)))
     pixels[inset:inset + tick, inset:inset + tick, :3] = _INK_VALUE
+
+    # Centre axis markers, so the middle of the texture is findable by
+    # eye when lining a swatch up against a real-world reference.
+    _draw_centre_axes(pixels, width_px, height_px, border, short_side)
 
     coverage = _render_text_layer(width_px, height_px, labels)
     if coverage is not None:

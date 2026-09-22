@@ -35,10 +35,22 @@ class TST_PT_MainPanel(Panel):
         # Coordinate type and alignment.
         # Non-square mode sizes in the node graph and always uses object
         # coordinates, so the choice does not apply there.
+        # Object coordinates bypass texture space entirely, so the
+        # anchor has nothing to act on there.
+        uses_texspace = (
+            settings.non_square or settings.coord_type == 'Generated'
+        )
+
         row = layout.row()
         row.active = not settings.non_square
         row.prop(settings, "coord_type")
-        layout.prop(settings, "align_to_edge")
+
+        col = layout.column(align=True)
+        col.active = uses_texspace
+        col.prop(settings, "align_to_edge")
+        sub = col.row()
+        sub.active = uses_texspace and settings.align_to_edge
+        sub.prop(settings, "align_anchor", text="")
 
         layout.separator()
 

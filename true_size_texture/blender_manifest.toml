@@ -1,7 +1,7 @@
 schema_version = "1.0.0"
 
 id = "true_size_texture"
-version = "0.6.1"
+version = "0.7.0"
 name = "True Size Texture"
 tagline = "Apply real-world texture sizes with box mapping"
 maintainer = "Allan Brito <allan@blender3darchitect.com>"
